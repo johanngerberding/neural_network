@@ -1,6 +1,10 @@
 import numpy as np
 from sklearn import datasets
 import matplotlib.pyplot as plt
+import pickle
+import pygame
+import operator
+import copy
 
 # In this file I will implement a neural network from scratch only using numpy
 # I also will test it on different datasets, maybe from scikit-learn
@@ -156,6 +160,17 @@ def calc_accuracy(Y, Y_hat):
     return (Y_hat_ == Y).all(axis=0).mean()
 
 
+# functions to safe and load 
+def save_obj(obj, name):
+    with open('obj/'+ name + '.pkl', 'wb') as f:
+        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
+
+
+def load_obj(name):
+    with open('obj/' + name + '.pkl', 'rb') as f:
+        return pickle.load(f)
+
+
 #4 Test our Implementation
 
 def main():
@@ -168,32 +183,216 @@ def main():
     
     X = np.transpose(X)
     y = np.transpose(y.reshape((y.shape[0], 1)))
-
-    
-
-    # print(X.shape)
-    # print(y.shape)
     
 
     neural_net_architecture = [
         {"input_dim": 2, "output_dim": 5, "activation": "relu"},
+        {"input_dim": 5, "output_dim": 6, "activation": "relu"},
+        {"input_dim": 6, "output_dim": 5, "activation": "relu"},
         {"input_dim": 5, "output_dim": 4, "activation": "relu"},
         {"input_dim": 4, "output_dim": 1, "activation": "sigmoid"},
     ]
 
+    # create a list of all neurons we want to display
+    neurons = []
+    input_layer = ["x" + str(i) for i in range(1, len(X) + 1)]
+    neurons.append(input_layer)
+
+    for i in range(len(neural_net_architecture)):
+        neurons.append(["a({0},{1})".format(i+1, j) for j in range(1, neural_net_architecture[i]["output_dim"] + 1) ])
+
+    # print(neurons)
+
+    # first of all, lets build a function which visualizes our network on the screen
+    # I think we use pygame for this
+    # initialize pygame
+    pygame.init()
+
+    # create colors
+    WHITE = pygame.Color(255, 255, 255)
+    RED = pygame.Color(255, 0, 0)
+    BLUE = pygame.Color(0, 0, 255)
+    GREEN = pygame.Color(0, 255, 0)
     
-    nn_params, cost_history, acc_history = train(X, y, neural_net_architecture, 600000, 0.0001)
+    # set width and height of the screen
+    width = 1000
+    height = 900
+
+    # maybe we want to adjust the size of the neural net visualization space
+    nn_width = width
+    nn_height = height
+
+    screen = pygame.display.set_mode((width, height))
+
+    # calc the width per section or level horizontally based on the nn_architecture
+    horizontal_levels_width = nn_width // (len(neural_net_architecture) + 1)
+    # print("Horizontal width " + str(horizontal_levels_width))
+
+    # calc the height per section or level
+    max_val = 0
+    nn_architecture = copy.deepcopy(neural_net_architecture)
     
-    #plt.plot(acc_history, "g")
-    #plt.plot(cost_history, "r")
-    #plt.show()
+    for dic in nn_architecture:
+        dic.pop("activation", None)
+        maximum = max(dic.values())
+        if maximum > max_val:
+            max_val = maximum
+
+
+    vertical_levels_height = nn_height // max_val
+    # print("Vertical height " + str(vertical_levels_height))
+
+    # set the title of the display
+    pygame.display.set_caption("Neural Network: Visualization")
+    pygame.mouse.set_visible(1)
+    pygame.key.set_repeat(1, 30)
+
+    # create a clock object to control the frame rate
+    clock = pygame.time.Clock()
+
+    font = pygame.font.Font('freesansbold.ttf', 16) 
+
+    # create a list of neuron connections (tuples)
+    neuron_connections = []
+    counter = 0
+    for i in range(len(neurons)-1):
+        layer_1 = neurons[counter]
+        layer_2 = neurons[counter + 1]
+        neuron_connections.append([[a,b] for a in layer_1 for b in layer_2])
+        counter += 1
+
+    
+    
+    # lets draw a single neuron
+    # we have to base the radius on the size of the grid
+    rad_max = min(vertical_levels_height, horizontal_levels_width)
+    radius = rad_max // 2 * 0.5
+    radius = int(radius)
+
+    neuron_coordinates = {}
+
+    for x, layer in enumerate(neurons):
+        # x value for all neurons per layer
+        x_neuron = horizontal_levels_width // 2 + (x * horizontal_levels_width)
+        # set the y-steop value
+        y_step = height // (len(layer) + 1)
+            # init y with step value
+        y_neuron = y_step
+        for neuron in layer:
+            neuron_coordinates[neuron] = (x_neuron, y_neuron)
+            y_neuron += y_step
+
+    
+    #try to load paramters from pickle files
+    nn_params = load_obj("nn_parameters")
+    cost_history = load_obj("cost_history")
+    acc_history = load_obj("acc_history") 
+
+    max_param = 1
+    min_param = -1  
+
+    for i in range(1,6):
+        # ndarray with parameter values
+        parameters = nn_params["W{0}".format(i)].T
+        # flatten the parameter list to ensure it has the same form as connections
+        flatten_params = []
+        for sublist in parameters:
+            for item in sublist:
+                flatten_params.append(item)
+
+        connection = neuron_connections[i-1]
+        
+        count = 0
+        for el in connection:
+            val = flatten_params[count]
+            if val > max_param:
+                max_param = val
+            elif val < min_param:
+                min_param = val
+            el.append(val)
+            count += 1
+
+
+    param_range = max_param - min_param
+
+    print("maximum weight value: " + str(max_param))
+    print("minimum weight value: " + str(min_param))
+    print("param range: "+ str(param_range))
+
+    print("------------------------")
+    
+    # print(neuron_connections[0][0])
+    # erst x1 zu allen a1 neuronen, dann x2 zu allen a1 neuronen
+
+
+    running = True
+    while running:
+        # set the frame rate to 20 per second
+        clock.tick(40)
+ 
+        # fill screen-surface (RGB = 0, 0, 0)
+        screen.fill((255, 255, 255))
+
+        # so now we have to draw lines between the neurons
+        for connections in neuron_connections:
+            for connection in connections:
+                start = connection[0]
+                end = connection[1]
+                line_width = int((connection[2] + np.absolute(min_param) + 1))
+                x_start, y_start = neuron_coordinates[start]
+                x_end, y_end = neuron_coordinates[end]
+                pygame.draw.line(screen, RED, (x_start, y_start), (x_end, y_end), line_width)
+
+        for neuron in neuron_coordinates.items():
+            pygame.draw.circle(screen, BLUE, (neuron[1][0], neuron[1][1]), radius)
+            text = font.render(neuron[0], True, WHITE, BLUE)
+            textRect = text.get_rect()
+            textRect.center = (neuron[1][0], neuron[1][1])
+            screen.blit(text, textRect)
+
+        
+
+
+        # event loop
+        for event in pygame.event.get():
+            # quit the game
+            if event.type == pygame.QUIT:
+                running = False
+ 
+            
+            if event.type == pygame.KEYDOWN:
+                # if you click on escape the loop ends
+                if event.key == pygame.K_ESCAPE:
+                    pygame.event.post(pygame.event.Event(pygame.QUIT))
+ 
+        # show content of screen
+        pygame.display.flip()
+
+
+    # nn_params, cost_history, acc_history = train(X, y, neural_net_architecture, 300000, 0.0001)
+    
+    # safe these values
+    # important -> key/value pairs are converted to strings, so if you load the 
+    # dictionary from the json file, it may be not the same as before
+
+    # save_obj(nn_params, "nn_parameters")
+    # save_obj(cost_history, "cost_history")
+    # save_obj(acc_history, "acc_history")
+
+    # print(neuron_coordinates)
+
+    
+
+    # print(nn_params["W1"][0][0])
+    # plt.plot(acc_history, "g", label="accuracy")
+    # plt.plot(cost_history, "r", label="cost")
+    # plt.legend()
+    # plt.show()
 
     # idea is to use forward prop to calc output of the model using the learned parameters
-    x_db = np.arange(-2, 3, 0.01).tolist()
-    
+    # feed the forward prop the cartesian product between -2 and 3 to plot the decision boundary 
+    x_db = np.arange(-2, 2.5, 0.05).tolist()
     X_db = np.transpose([np.tile(x_db, len(x_db)), np.repeat(x_db, len(x_db))])
-    
-    print(X_db.shape)
 
     db, _ = forward_prop(X_db.T, nn_params, neural_net_architecture)
     db = np.squeeze(db)
@@ -203,16 +402,13 @@ def main():
     db_[db_ <= 0.5] = 0
 
 
-    #plt.plot(db)
-    plt.scatter(X_db[:, 0], X_db[:, 1], c=db_)
-    plt.show()
-    # then we will plot the decision boundary
+    colors = ['g' if i == 1 else 'r' for i in y_plt]
 
-    # forward_prop(X, nn_params, neural_net_architecture)
-    
-
-    # plt.plot(cost_history)
+    # plt.scatter(X_db[:, 0], X_db[:, 1], c=db_)
+    # plt.scatter(X_plt[:, 0], X_plt[:, 1], c=colors)
     # plt.show()
+ 
+    
  
 
 if __name__ == "__main__":
